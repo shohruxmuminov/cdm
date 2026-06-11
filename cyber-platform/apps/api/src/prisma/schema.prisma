@@ -1,0 +1,162 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String        @id @default(cuid())
+  email           String        @unique
+  passwordHash    String
+  fullName        String
+  role            UserRole      @default(ANALYST)
+  organization    Organization  @relation(fields: [organizationId], references: [id])
+  organizationId  String
+  lastLogin       DateTime?
+  mfaEnabled      Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+enum UserRole {
+  SUPERADMIN
+  ORG_ADMIN
+  ANALYST
+  AUDITOR
+}
+
+model Organization {
+  id            String    @id @default(cuid())
+  name          String
+  tier          OrgTier   @default(FREE)
+  users         User[]
+  domains       Domain[]
+  apiKeys       ApiKey[]
+  billingEmail  String?
+  createdAt     DateTime  @default(now())
+}
+
+enum OrgTier {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+model Domain {
+  id                String         @id @default(cuid())
+  hostname          String         @unique
+  organizationId    String
+  organization      Organization   @relation(fields: [organizationId], references: [id])
+  isVerified        Boolean        @default(false)
+  verificationMethod VerificationMethod @default(DNS_TXT)
+  verificationToken String         @default(uuid())
+  assets            Asset[]
+  scans             Scan[]
+  monitoringActive  Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+}
+
+enum VerificationMethod {
+  DNS_TXT
+  HTTP_FILE
+  CNAME
+}
+
+model Asset {
+  id          String    @id @default(cuid())
+  domainId    String
+  domain      Domain    @relation(fields: [domainId], references: [id])
+  type        AssetType
+  value       String    // e.g. sub.domain.com, 1.2.3.4, /api/v1/login
+  status      AssetStatus @default(ACTIVE)
+  metadata    Json?     // Port info, CMS info, service banners
+  lastSeen    DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+}
+
+enum AssetType {
+  SUBDOMAIN
+  IP_ADDRESS
+  API_ENDPOINT
+  CLOUD_BUCKET
+  MAIL_SERVER
+}
+
+enum AssetStatus {
+  ACTIVE
+  INACTIVE
+  VULNERABLE
+}
+
+model Scan {
+  id              String           @id @default(cuid())
+  domainId        String
+  domain          Domain           @relation(fields: [domainId], references: [id])
+  status          ScanStatus       @default(QUEUED)
+  config          Json?            // custom scan parameters
+  findings        Vulnerability[]
+  riskScore       Float?           // Overall score from 0 to 100
+  startedAt       DateTime?
+  completedAt     DateTime?
+  duration        Int?             // In seconds
+  reportUrl       String?
+  createdAt       DateTime         @default(now())
+}
+
+enum ScanStatus {
+  QUEUED
+  INITIALIZING
+  RECONNAISSANCE
+  VULN_SCANNING
+  EXPLOIT_SIMULATION
+  FINALIZING
+  COMPLETED
+  FAILED
+}
+
+model Vulnerability {
+  id              String    @id @default(cuid())
+  scanId          String
+  scan            Scan      @relation(fields: [scanId], references: [id])
+  title           String
+  description     String    @db.Text
+  severity        Severity
+  cvssScore       Float
+  cveId           String?   // e.g. CVE-2024-1234
+  location        String    // URL or Parameter
+  evidence        String?   @db.Text // Proof of concept/repro
+  impact          String    @db.Text
+  remediation     String    @db.Text
+  status          FindingStatus @default(OPEN)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum FindingStatus {
+  OPEN
+  RESOLVED
+  FALSE_POSITIVE
+  ACCEPTED_RISK
+}
+
+model ApiKey {
+  id              String    @id @default(cuid())
+  keyHash         String    @unique
+  name            String
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
+}
